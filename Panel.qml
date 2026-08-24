@@ -55,7 +55,25 @@ Panel {
   implicitHeight: button.implicitHeight
 
   property int cursorIndex: 0
-  readonly property int cursorCount: 1 + toggleRows.length
+  property int groupIndex: 0
+
+  // Flat list of keyboard-reachable rows. Each entry is one stop for the
+  // up/down cursor: the noise-mode chips, each settings toggle, then the
+  // codec chips. `groupIndex` is the chip highlighted inside a "modes" or
+  // "codec" row — a plain int because only one chip row is focused at a time.
+  readonly property var focusableRows: {
+    var rows = []
+    if (connected && hasModes) rows.push({type: "modes"})
+    for (var i = 0; i < toggleRows.length; i++)
+      rows.push({type: "toggle", index: i})
+    if (codecOptions.length > 1) rows.push({type: "codec"})
+    return rows
+  }
+  readonly property int cursorCount: focusableRows.length
+
+  onOpenedChanged: {
+    if (opened) selectCursor(0)
+  }
 
   readonly property var modeOptions: {
     var names = {
@@ -98,6 +116,7 @@ Panel {
   function setNoise(mode) { if (service) service.setNoise(mode) }
   function cycle() { if (service) service.cycle() }
   function setToggle(name, value) { if (service) service.setToggle(name, value) }
+  function setCodec(profile) { if (service) service.setCodec(profile) }
 
   // The glyph carries the mode on its own, the way the other bar icons do:
   // an ear that hears the room for ambient, a crossed-out one for ANC.
@@ -108,18 +127,71 @@ Panel {
     return "󰋋"
   }
 
+  // The cursor walks rows up/down and, on a chip row, walks chips left/right.
+  // `focusedRow()` is the row the cursor sits on; `groupIndex` is the chip
+  // within a "modes"/"codec" row. Landing on a chip row resets the chip to the
+  // one currently active, so the user sees their existing choice first.
+  function focusedRow() {
+    return cursorIndex >= 0 && cursorIndex < focusableRows.length
+      ? focusableRows[cursorIndex] : null
+  }
+
+  function optionValue(o) {
+    return (o && typeof o === "object") ? String(o.value) : String(o)
+  }
+
+  function groupOptions(row) {
+    if (!row) return []
+    return row.type === "modes" ? root.modeOptions : root.codecOptions
+  }
+
+  function rowIndexFor(type) {
+    for (var i = 0; i < focusableRows.length; i++)
+      if (focusableRows[i].type === type) return i
+    return -1
+  }
+
+  function toggleRowIndex(toggleIndex) {
+    for (var i = 0; i < focusableRows.length; i++)
+      if (focusableRows[i].type === "toggle" && focusableRows[i].index === toggleIndex)
+        return i
+    return -1
+  }
+
   function selectCursor(index) {
     cursorIndex = Math.max(0, Math.min(cursorCount - 1, index))
+    var row = focusedRow()
+    if (row && (row.type === "modes" || row.type === "codec")) {
+      var opts = groupOptions(row)
+      var selected = row.type === "modes"
+        ? modeGroup.selectedOptionIndex() : codecGroup.selectedOptionIndex()
+      groupIndex = (selected < 0 || selected >= opts.length) ? 0 : selected
+    }
+  }
+
+  function moveGroupCursor(delta) {
+    var row = focusedRow()
+    if (!row || (row.type !== "modes" && row.type !== "codec")) return
+    var opts = groupOptions(row)
+    if (opts.length <= 0) return
+    if (groupIndex < 0) groupIndex = 0
+    groupIndex = Math.max(0, Math.min(opts.length - 1, groupIndex + delta))
   }
 
   function activateCursor() {
-    if (!connected) return
-    if (cursorIndex === 0) {
-      cycle()
-      return
+    var row = focusedRow()
+    if (!row) return
+    if (row.type === "modes") {
+      if (!connected) return
+      var mode = root.modeOptions[groupIndex]
+      if (mode) setNoise(mode.value)
+    } else if (row.type === "toggle") {
+      var toggle = root.toggleRows[row.index]
+      if (toggle) setToggle(toggle.key, !toggle.checked)
+    } else if (row.type === "codec") {
+      var codec = root.codecOptions[groupIndex]
+      if (codec !== undefined && codec !== null) setCodec(optionValue(codec))
     }
-    var row = toggleRows[cursorIndex - 1]
-    if (row) setToggle(row.key, !row.checked)
   }
 
   BarIconButton {
@@ -154,7 +226,7 @@ Panel {
       anchors.fill: parent
       onMoveRequested: function(dx, dy) {
         if (dy !== 0) root.selectCursor(root.cursorIndex + dy)
-        else if (dx !== 0 && root.cursorIndex === 0 && root.connected) root.cycle()
+        else if (dx !== 0) root.moveGroupCursor(dx)
       }
       onActivateRequested: root.activateCursor()
       onCloseRequested: root.close()
@@ -302,10 +374,16 @@ Panel {
           foreground: root.foreground
           fontFamily: root.fontFamily
           visible: root.connected && root.hasModes
-          cursorIndex: root.cursorIndex === 0 ? modeGroup.selectedOptionIndex() : -1
+          cursorIndex: (root.focusedRow() && root.focusedRow().type === "modes") ? root.groupIndex : -1
           onChanged: function(value) {
-            root.selectCursor(0)
+            root.selectCursor(root.rowIndexFor("modes"))
             root.setNoise(value)
+          }
+          onHovered: function(index, isHovered) {
+            if (isHovered) {
+              root.selectCursor(root.rowIndexFor("modes"))
+              root.groupIndex = index
+            }
           }
         }
 
@@ -339,11 +417,11 @@ Panel {
             ToggleSwitch {
               id: rowSwitch
               checked: modelData.checked
-              hasCursor: root.cursorIndex === index + 1
+              hasCursor: root.cursorIndex === root.toggleRowIndex(index)
               foreground: root.foreground
               anchors.right: parent.right
               anchors.verticalCenter: parent.verticalCenter
-              onHovered: function(on) { if (on) root.selectCursor(index + 1) }
+              onHovered: function(on) { if (on) root.selectCursor(root.toggleRowIndex(index)) }
               onToggled: root.setToggle(modelData.key, !modelData.checked)
             }
           }
@@ -369,8 +447,16 @@ Panel {
           foreground: root.foreground
           fontFamily: root.fontFamily
           visible: root.codecOptions.length > 1
+          cursorIndex: (root.focusedRow() && root.focusedRow().type === "codec") ? root.groupIndex : -1
           onChanged: function(value) {
-            if (root.service) root.service.setCodec(value)
+            root.selectCursor(root.rowIndexFor("codec"))
+            root.setCodec(value)
+          }
+          onHovered: function(index, isHovered) {
+            if (isHovered) {
+              root.selectCursor(root.rowIndexFor("codec"))
+              root.groupIndex = index
+            }
           }
         }
 
