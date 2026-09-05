@@ -45,18 +45,30 @@ Panel {
   // the built-in Bluetooth panel does it.
   property bool searching: false
   property bool connecting: false
-  // Latched the moment a live search turns up a match, so a pair that was
-  // already paired-but-out-of-range (sitting in BlueZ's device list from
-  // before) never jumps straight to "Found" before Search was ever pressed.
-  property var foundDevice: null
+  // Whether Search has been pressed since the panel last opened (or last
+  // connected). Gates foundDevice below so a pair that is already known to
+  // BlueZ from before -- paired but currently out of range or in the case --
+  // doesn't jump straight to "Found" before Search was ever pressed.
+  property bool everSearched: false
 
   readonly property var adapter: Bluetooth.defaultAdapter
   readonly property var scanDevices: Bluetooth.devices ? Bluetooth.devices.values : []
-  // First not-yet-connected device whose advertised name says "Buds": good
-  // enough for a manual search the user only runs while watching the panel,
-  // no need for the daemon's stricter UUID/model matching here. Only
-  // consulted while a search is actually running -- see foundDevice above.
-  readonly property var candidateDevice: {
+  // First not-yet-connected device whose advertised name says "Buds", once
+  // Search has been pressed: good enough for a manual search the user only
+  // runs while watching the panel, no need for the daemon's stricter
+  // UUID/model matching here.
+  //
+  // A plain reactive binding, not something latched off a change signal: a
+  // pair already sitting in BlueZ's known-device list (paired before, just
+  // disconnected) matches on the very first evaluation after Search is
+  // pressed, and a signal-based latch would miss that -- QML only emits a
+  // changed signal when a property's *value* actually differs from before,
+  // which never happens for a match that was already the same object both
+  // before and after Search was pressed. This binding reacts correctly
+  // regardless, because it genuinely flips from null to a device the moment
+  // everSearched turns true.
+  readonly property var foundDevice: {
+    if (!everSearched) return null
     for (var i = 0; i < scanDevices.length; i++) {
       var d = scanDevices[i]
       if (d && !d.connected && String(d.name || d.deviceName || "").toLowerCase().indexOf("buds") >= 0)
@@ -92,7 +104,7 @@ Panel {
 
   function startSearch() {
     if (!adapter || searching) return
-    foundDevice = null
+    everSearched = true
     searching = true
     if (!adapter.discovering) adapter.discovering = true
     searchTimeoutTimer.restart()
@@ -121,19 +133,14 @@ Panel {
     else if (searchPhase === "idle") startSearch()
   }
 
-  // Only latches a match while a search this panel started is actually
-  // running -- see foundDevice's declaration for why.
-  onCandidateDeviceChanged: {
-    if (candidateDevice && searching) {
-      foundDevice = candidateDevice
-      stopScanning()
-    }
-  }
+  // A match means discovery has done its job; stop it rather than leave the
+  // radio scanning until the timeout.
+  onFoundDeviceChanged: if (foundDevice) stopScanning()
   onConnectedChanged: {
     if (connected) {
       connecting = false
       connectTimeoutTimer.stop()
-      foundDevice = null
+      everSearched = false
       stopScanning()
     }
   }
@@ -142,7 +149,7 @@ Panel {
       stopScanning()
       connecting = false
       connectTimeoutTimer.stop()
-      foundDevice = null
+      everSearched = false
     }
   }
 
