@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import Quickshell
 import Quickshell.Io
+import Quickshell.Bluetooth
 import qs.Commons
 import qs.Ui
 
@@ -36,6 +37,124 @@ Panel {
   // Two pairs can be connected at once; this says whether the one being shown
   // is the one sound is actually going to.
   readonly property bool isAudioOutput: buds.is_default_output === true
+
+  // ---- First-time pairing: scan for earbuds sitting in an open case ----
+  // The Python helper only ever looks for a pair BlueZ already knows about
+  // (see bin/galaxy-buds' find_device), so getting brand-new earbuds paired
+  // in the first place goes through BlueZ discovery directly, the same way
+  // the built-in Bluetooth panel does it.
+  property bool searching: false
+  property bool connecting: false
+  // Latched the moment a live search turns up a match, so a pair that was
+  // already paired-but-out-of-range (sitting in BlueZ's device list from
+  // before) never jumps straight to "Found" before Search was ever pressed.
+  property var foundDevice: null
+
+  readonly property var adapter: Bluetooth.defaultAdapter
+  readonly property var scanDevices: Bluetooth.devices ? Bluetooth.devices.values : []
+  // First not-yet-connected device whose advertised name says "Buds": good
+  // enough for a manual search the user only runs while watching the panel,
+  // no need for the daemon's stricter UUID/model matching here. Only
+  // consulted while a search is actually running -- see foundDevice above.
+  readonly property var candidateDevice: {
+    for (var i = 0; i < scanDevices.length; i++) {
+      var d = scanDevices[i]
+      if (d && !d.connected && String(d.name || d.deviceName || "").toLowerCase().indexOf("buds") >= 0)
+        return d
+    }
+    return null
+  }
+  readonly property string candidateName: foundDevice
+    ? String(foundDevice.name || foundDevice.deviceName || "Galaxy Buds") : ""
+
+  readonly property string searchPhase: {
+    if (connecting) return "connecting"
+    if (foundDevice) return "found"
+    if (searching) return "searching"
+    return "idle"
+  }
+
+  readonly property string searchText: {
+    if (searchPhase === "searching") return t("searching", "Searching for Galaxy Buds…")
+    if (searchPhase === "found") return t("found", "Found") + " " + candidateName
+    if (searchPhase === "connecting") return t("connectingDevice", "Connecting…")
+    return t("searchHint", "Open the case near your PC, then tap Search.")
+  }
+
+  readonly property string searchButtonText: searchPhase === "found"
+    ? t("connect", "Connect") : t("search", "Search")
+  readonly property bool searchButtonVisible: searchPhase !== "connecting"
+  readonly property bool searchButtonEnabled: searchPhase !== "searching"
+
+  function startSearch() {
+    if (!adapter || searching) return
+    foundDevice = null
+    searching = true
+    if (!adapter.discovering) adapter.discovering = true
+    searchTimeoutTimer.restart()
+  }
+
+  function stopScanning() {
+    searching = false
+    searchTimeoutTimer.stop()
+    if (adapter && adapter.discovering) adapter.discovering = false
+  }
+
+  function connectFound() {
+    if (!foundDevice) return
+    connecting = true
+    connectTimeoutTimer.restart()
+    // Trust needs setting before this pair's first connect, and bluetoothctl
+    // (via this helper) is what already handles that reliably for the
+    // built-in Bluetooth panel, agent included.
+    var action = (foundDevice.paired || foundDevice.bonded || foundDevice.trusted)
+      ? "connect" : "pair"
+    Quickshell.execDetached(["omarchy-bluetooth-device", action, foundDevice.address])
+  }
+
+  function onSearchButtonClicked() {
+    if (searchPhase === "found") connectFound()
+    else if (searchPhase === "idle") startSearch()
+  }
+
+  // Only latches a match while a search this panel started is actually
+  // running -- see foundDevice's declaration for why.
+  onCandidateDeviceChanged: {
+    if (candidateDevice && searching) {
+      foundDevice = candidateDevice
+      stopScanning()
+    }
+  }
+  onConnectedChanged: {
+    if (connected) {
+      connecting = false
+      connectTimeoutTimer.stop()
+      foundDevice = null
+      stopScanning()
+    }
+  }
+  onOpenedChanged: {
+    if (!opened) {
+      stopScanning()
+      connecting = false
+      connectTimeoutTimer.stop()
+      foundDevice = null
+    }
+  }
+
+  Timer {
+    id: searchTimeoutTimer
+    interval: 30000
+    repeat: false
+    onTriggered: root.stopScanning()
+  }
+
+  Timer {
+    id: connectTimeoutTimer
+    interval: 25000
+    repeat: false
+    onTriggered: root.connecting = false
+  }
 
   readonly property color foreground: bar ? bar.foreground : Color.foreground
   readonly property color urgent: bar ? bar.urgent : Color.urgent
@@ -376,16 +495,44 @@ Panel {
 
         Text {
           width: parent.width
-          visible: !root.connected
-          text: !root.service
-                ? root.t("serviceOff", "The plugin service is not running.")
-                : root.buds.reason === "not paired"
-                  ? root.t("notPaired", "No Galaxy Buds paired.")
-                  : root.t("disconnected", "Disconnected. Take them out of the case to reconnect.")
+          visible: !root.connected && !root.service
+          text: root.t("serviceOff", "The plugin service is not running.")
           color: root.dim
           font.family: root.fontFamily
           font.pixelSize: Style.font.body
           wrapMode: Text.WordWrap
+        }
+
+        // Not connected but the service is up: offer to find and pair new
+        // earbuds rather than just saying so. Already-paired earbuds still
+        // reconnect on their own the moment they come out of the case; this
+        // is for the first time a pair has never been paired at all.
+        Column {
+          width: parent.width
+          visible: !root.connected && !!root.service
+          spacing: Style.space(10)
+
+          Text {
+            width: parent.width
+            text: root.searchText
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.body
+            wrapMode: Text.WordWrap
+          }
+
+          Button {
+            width: parent.width
+            visible: root.searchButtonVisible
+            enabled: root.searchButtonEnabled
+            text: root.searchButtonText
+            iconText: "󰂯"
+            iconSpinning: root.searchPhase === "searching"
+            bordered: true
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            onClicked: root.onSearchButtonClicked()
+          }
         }
       }
     }

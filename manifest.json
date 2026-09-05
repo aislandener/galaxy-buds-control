@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "aislandener.galaxy-buds",
   "name": "Galaxy Buds",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Aislan Dener Souza Vicentini",
   "license": "MIT",
   "description": "Noise control for Samsung Galaxy Buds straight from the bar, with per-earbud battery, 360 Audio, touch controls and quick connect where the model supports them.",
@@ -36,7 +36,7 @@
         "key": "labels",
         "type": "object",
         "label": "Label overrides",
-        "description": "Replace any visible string, e.g. {\"anc\": \"ANC\", \"ambient\": \"Som ambiente\"}. Keys: noiseControl, settings, codec, off, anc, ambient, adaptive, spatial, touch, seamless, left, right, case, notOutput, disconnected, notPaired, serviceOff.",
+        "description": "Replace any visible string, e.g. {\"anc\": \"ANC\", \"ambient\": \"Som ambiente\"}. Keys: noiseControl, settings, codec, off, anc, ambient, adaptive, spatial, touch, seamless, left, right, case, notOutput, serviceOff, searchHint, searching, found, connectingDevice, search, connect.",
         "defaultValue": {}
       }
     ]
