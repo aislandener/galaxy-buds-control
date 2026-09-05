@@ -78,7 +78,14 @@ Panel {
     if (searchPhase === "searching") return t("searching", "Searching for Galaxy Buds…")
     if (searchPhase === "found") return t("found", "Found") + " " + candidateName
     if (searchPhase === "connecting") return t("connectingDevice", "Connecting…")
-    return t("searchHint", "Open the case near your PC, then tap Search.")
+    return t("searchHint",
+      "Paired these earbuds with this PC before?\n" +
+      "1. Open the case\n" +
+      "2. Tap Search\n\n" +
+      "Never paired them with this PC?\n" +
+      "1. Open the case\n" +
+      "2. Hold the touch sensors on both earbuds until the light blinks different colors\n" +
+      "3. Tap Search")
   }
 
   readonly property string searchButtonText: searchPhase === "found"

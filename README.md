@@ -158,7 +158,7 @@ widget's entry in `~/.config/omarchy/shell.json`:
     "touch": "Controles de toque",
     "seamless": "Conexão rápida",
     "case": "Estojo",
-    "searchHint": "Abra o estojo perto do PC e toque em Buscar.",
+    "searchHint": "Já pareou esses fones com este PC antes?\n1. Abra o estojo\n2. Toque em Buscar\n\nNunca pareou com este PC?\n1. Abra o estojo\n2. Segure os sensores de toque dos dois fones até a luz piscar em cores diferentes\n3. Toque em Buscar",
     "search": "Buscar"
   }
 }
@@ -178,7 +178,7 @@ Every key is optional; anything you leave out keeps its English text.
 | `left` / `right` / `case` | L / R / Case |
 | `notOutput` | Not the audio output |
 | `serviceOff` | The plugin service is not running. |
-| `searchHint` | Open the case near your PC, then tap Search. |
+| `searchHint` | Already paired? Open the case, tap Search. Never paired with this PC? Open the case, hold the touch sensors on both earbuds until the light blinks different colors, then tap Search. |
 | `search` | Search |
 | `searching` | Searching for Galaxy Buds… |
 | `found` | Found |
