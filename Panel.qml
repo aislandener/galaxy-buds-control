@@ -79,17 +79,14 @@ Panel {
     if (searchPhase === "found") return t("found", "Found") + " " + candidateName
     if (searchPhase === "connecting") return t("connectingDevice", "Connecting…")
     return t("searchHint",
-      "Paired these earbuds with this PC before?\n" +
       "1. Open the case\n" +
-      "2. Tap Search\n\n" +
-      "Never paired them with this PC?\n" +
-      "1. Open the case\n" +
-      "2. Hold the touch sensors on both earbuds until the light blinks different colors\n" +
+      "2. Hold the touch sensors on both earbuds for about 7 seconds, " +
+      "until the light starts flickering\n" +
       "3. Tap Search")
   }
 
   readonly property string searchButtonText: searchPhase === "found"
-    ? t("connect", "Connect") : t("search", "Search")
+    ? t("pair", "Pair") : t("search", "Search")
   readonly property bool searchButtonVisible: searchPhase !== "connecting"
   readonly property bool searchButtonEnabled: searchPhase !== "searching"
 
