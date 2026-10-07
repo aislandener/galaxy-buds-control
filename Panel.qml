@@ -379,7 +379,7 @@ Panel {
     // The cap only exists to stop a runaway panel; the real limit is the
     // screen. 420 cut the codec row off once battery, modes, three toggles and
     // codecs were all on screen at once.
-    contentHeight: panel.fittedContentHeight(panelColumn.implicitHeight, Style.space(620))
+    contentHeight: panel.fittedContentHeight(panelColumn.implicitHeight, Style.space(1100))
 
     PanelKeyCatcher {
       id: keyCatcher
@@ -565,6 +565,11 @@ Panel {
           visible: root.toggleRows.length > 0
         }
 
+        Column {
+          width: parent.width
+          spacing: Style.space(2)
+          visible: root.toggleRows.length > 0
+
         Repeater {
           model: root.toggleRows
 
@@ -597,6 +602,8 @@ Panel {
               onToggled: if (!modelData.readOnly) root.setToggle(modelData.key, !modelData.checked)
             }
           }
+        }
+
         }
 
         Text {
