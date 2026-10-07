@@ -35,6 +35,7 @@ SOM, EOM = 0xFD, 0xDD
 LEGACY_SOM, LEGACY_EOM = 0xFE, 0xEE
 
 MSG_ACK = 66
+MSG_EXTRA_CLEAR_CALL = 72
 MSG_STATUS = 96
 MSG_EXTENDED_STATUS = 97
 MSG_NOISE_CONTROLS_UPDATE = 119
@@ -43,12 +44,36 @@ MSG_SET_SPATIAL_AUDIO = 124
 MSG_SET_AMBIENT_MODE = 128
 MSG_AMBIENT_MODE_UPDATED = 129
 MSG_LOCK_TOUCHPAD = 144
+MSG_SET_DETECT_CONVERSATIONS = 122
+MSG_NOISE_REDUCTION_LEVEL = 131
 MSG_SET_NOISE_REDUCTION = 152
 MSG_NOISE_REDUCTION_MODE_UPDATE = 155
 MSG_SET_SEAMLESS_CONNECTION = 175
 
-MODES = {"off": 0, "anc": 1, "ambient": 2}
+# "adaptive" is the fourth noise-control mode the Pro models from Buds3 Pro on
+# understand: the earbuds pick between ANC and ambient on their own.
+MODES = {"off": 0, "anc": 1, "ambient": 2, "adaptive": 3}
 MODE_NAMES = {v: k for k, v in MODES.items()}
+
+# Extra one-byte settings the Pro models report in the extended status, each
+# with the command that changes it, or None when only the phone app can.
+# Offsets follow GalaxyBudsClient's ExtendedStatusUpdateDecoder for Buds3 Pro
+# and newer: byte 34 is call path control, and the fields run on from there.
+PRO_EXTRAS = {
+    "anc_high": 24,          # noise reduction level: 1 = high, 0 = low
+    "voice_detect": 26,      # switch to ambient while you talk
+    "head_tracking": 41,     # 360 Audio follows head movement
+    "extra_clear_call": 43,
+    "auto_pause": 45,        # pause when an earbud is taken out
+    "adaptive_volume": 49,
+    "siren_detect": 52,      # drop to ambient when a siren is heard
+}
+EXTRA_COMMANDS = {
+    "anc_high": MSG_NOISE_REDUCTION_LEVEL,
+    "voice_detect": MSG_SET_DETECT_CONVERSATIONS,
+    "extra_clear_call": MSG_EXTRA_CLEAR_CALL,
+}
+EXTRA_BY_COMMAND = {v: k for k, v in EXTRA_COMMANDS.items()}
 
 # What actually differs between models. Everything else -- framing, CRC, the
 # commands, the battery messages -- is shared, so adding a model is a row here.
@@ -60,6 +85,8 @@ MODE_NAMES = {v: k for k, v in MODES.items()}
 #   touch:    (shape, offset); "bits7" models send seven booleans back
 #   seamless: (offset, first firmware revision that reports it)
 #   spatial:  same, or None when the model has no 360 Audio
+#   extras:   {field: offset} of the extended-status bytes a Pro model also
+#             reports (see PRO_EXTRAS); absent on everything else
 #
 # Order matters: name matching walks this list, so "Buds2 Pro" has to come
 # before "Buds2".
@@ -100,6 +127,16 @@ PROFILES = [
      "seamless": (19, 0), "spatial": None},
 
     {"name": "budsfe", "charging": True, "ids": (330, 331), "match": ("Buds FE",),
+     "uuid": SPP_NEW,
+     "modes": ("off", "anc", "ambient"), "noise": ("controls", 12), "touch": ("bits7", 10),
+     "seamless": (19, 0), "spatial": (35, 0)},
+
+    {"name": "buds4pro", "charging": True, "ids": (359, 360, 361), "match": ("Buds4 Pro",),
+     "uuid": SPP_NEW,
+     "modes": ("off", "anc", "ambient", "adaptive"), "noise": ("controls", 12), "touch": ("bits7", 10),
+     "seamless": (19, 0), "spatial": (35, 0), "extras": PRO_EXTRAS},
+
+    {"name": "buds4", "charging": True, "ids": (355, 356), "match": ("Buds4",),
      "uuid": SPP_NEW,
      "modes": ("off", "anc", "ambient"), "noise": ("controls", 12), "touch": ("bits7", 10),
      "seamless": (19, 0), "spatial": (35, 0)},
@@ -328,6 +365,11 @@ def parse_extended_status(payload, profile):
     spatial = optional_field(payload, profile["spatial"], revision)
     if spatial is not None:
         state["spatial"] = spatial == 1
+    # Pro-only bytes: a shorter payload simply means this firmware stops
+    # earlier, so each field is read only when it is actually there.
+    for key, offset in (profile.get("extras") or {}).items():
+        if len(payload) > offset:
+            state[key] = payload[offset] == 1
     return state
 
 
@@ -529,15 +571,17 @@ class Daemon:
         if not path:
             self.update({"connected": False, "reason": "not paired"})
             return True
-        if not device.get("Connected", False):
-            # The earbuds are in the case or off: ConnectProfile here would try
-            # to wake the whole device, so wait for them to come back instead.
-            self.update({"connected": False, "reason": "device offline"})
-            return True
-
         uuids = [str(u).lower() for u in device.get("UUIDs", [])]
         name = str(device.get("Alias") or device.get("Name") or "")
         profile = profile_for(uuids, name)
+        if not device.get("Connected", False):
+            # The earbuds are in the case or off: ConnectProfile here would try
+            # to wake the whole device, so wait for them to come back instead.
+            # Still say which pair this is, so the panel can name it meanwhile.
+            self.update({"connected": False, "reason": "device offline",
+                         "model": profile["name"], "modes": list(profile["modes"]), "name": name})
+            return True
+
         if profile is not self.profile:
             self.profile = profile
             self.registered = False
@@ -692,6 +736,8 @@ class Daemon:
             touch = dict(self.state.get("touch", {}))
             touch["enabled"] = params[0] == 1
             self.update({"touch": touch})
+        elif acked in EXTRA_BY_COMMAND:
+            self.update({EXTRA_BY_COMMAND[acked]: params[0] == 1})
 
     def send(self, msg_id, payload=b""):
         if not self.socket:
@@ -728,6 +774,8 @@ class Daemon:
         elif name == "seamless" and self.profile["seamless"]:
             # Inverted on the wire: 0 enables it.
             self.send(MSG_SET_SEAMLESS_CONNECTION, bytes([0 if value else 1]))
+        elif name in EXTRA_COMMANDS and name in (self.profile.get("extras") or {}):
+            self.send(EXTRA_COMMANDS[name], bytes([1 if value else 0]))
         elif name == "codec" and value:
             card = (self.state.get("codec") or {}).get("card")
             if card:

@@ -420,6 +420,106 @@ def test_seamless_is_inverted_on_the_wire():
     assert sent == [(gb.MSG_SET_SEAMLESS_CONNECTION, bytes([0]))]
 
 
+def buds4pro_payload():
+    # Laid out after GalaxyBudsClient's decoder for Buds3 Pro and newer: the
+    # shared bytes up to 35, then the Pro fields that follow call path control.
+    payload = bytearray(extended_payload())
+    payload = payload + bytes(20)
+    payload[12] = 3      # adaptive
+    payload[24] = 1      # ANC level high
+    payload[26] = 1      # voice detect on
+    payload[41] = 0      # head tracking off
+    payload[43] = 1      # extra clear call sound on
+    payload[45] = 1      # auto pause and resume on
+    payload[49] = 0      # adaptive volume off
+    payload[52] = 1      # siren detect on
+    return bytes(payload)
+
+
+def test_buds4pro_device_ids_resolve_to_profile():
+    for tail in ("0167", "0168", "0169"):
+        uuids = [gb.SPP_NEW, "d908aab5-7a90-4cbe-8641-86a553db" + tail]
+        assert gb.profile_for(uuids, "Ram's Buds4 Pro")["name"] == "buds4pro"
+    assert gb.profile_for([gb.SPP_NEW, "d908aab5-7a90-4cbe-8641-86a553db0163"], "x")["name"] == "buds4"
+    # "Buds4 Pro" must not be swallowed by the "Buds4" row when matching by name.
+    assert gb.profile_for([gb.SPP_NEW], "Buds4 Pro (0A0A)")["name"] == "buds4pro"
+    assert gb.profile_for([gb.SPP_NEW], "Buds4 (0A0A)")["name"] == "buds4"
+
+
+def test_parse_extended_status_buds4pro():
+    state = gb.parse_extended_status(buds4pro_payload(), profile("buds4pro"))
+    assert state["noise"] == "adaptive"
+    assert state["battery"] == {"left": 97, "right": 95, "case": 80}
+    assert state["spatial"] is True
+    assert state["anc_high"] is True
+    assert state["voice_detect"] is True
+    assert state["head_tracking"] is False
+    assert state["extra_clear_call"] is True
+    assert state["auto_pause"] is True
+    assert state["adaptive_volume"] is False
+    assert state["siren_detect"] is True
+
+
+def test_pro_extras_are_hidden_on_other_models():
+    state = gb.parse_extended_status(buds4pro_payload(), profile("buds2pro"))
+    for key in gb.PRO_EXTRAS:
+        assert key not in state
+    # A short payload from older firmware stops before the Pro bytes.
+    state = gb.parse_extended_status(extended_payload(), profile("buds4pro"))
+    assert "siren_detect" not in state and state["anc_high"] is False
+
+
+def test_buds4pro_offers_adaptive_mode():
+    daemon = gb.Daemon()
+    daemon.profile = profile("buds4pro")
+    daemon.state.update({"modes": list(profile("buds4pro")["modes"]), "noise": "ambient"})
+    sent = []
+    daemon.send = lambda msg_id, payload=b"": sent.append((msg_id, payload))
+    daemon.emit = lambda: None
+    daemon.command('{"cmd":"noise","value":"adaptive"}')
+    daemon.command('{"cmd":"cycle"}')
+    assert sent == [(gb.MSG_NOISE_CONTROLS, bytes([3])), (gb.MSG_NOISE_CONTROLS, bytes([3]))]
+    assert gb.read_noise(3, "controls") == "adaptive"
+
+
+def test_pro_toggles_use_their_own_commands():
+    daemon = gb.Daemon()
+    daemon.profile = profile("buds4pro")
+    sent = []
+    daemon.send = lambda msg_id, payload=b"": sent.append((msg_id, payload))
+    daemon.emit = lambda: None
+    daemon.command('{"cmd":"voice_detect","value":true}')
+    daemon.command('{"cmd":"anc_high","value":false}')
+    daemon.command('{"cmd":"extra_clear_call","value":true}')
+    # Phone-only settings have no command and are ignored.
+    daemon.command('{"cmd":"siren_detect","value":true}')
+    daemon.command('{"cmd":"head_tracking","value":true}')
+    assert sent == [(gb.MSG_SET_DETECT_CONVERSATIONS, bytes([1])),
+                    (gb.MSG_NOISE_REDUCTION_LEVEL, bytes([0])),
+                    (gb.MSG_EXTRA_CLEAR_CALL, bytes([1]))]
+
+
+def test_pro_toggles_are_ignored_on_models_without_them():
+    daemon = gb.Daemon()
+    daemon.profile = profile("buds2pro")
+    daemon.emit = lambda: None
+    sent = []
+    daemon.send = lambda *a, **k: sent.append(a)
+    daemon.command('{"cmd":"voice_detect","value":true}')
+    assert sent == []
+
+
+def test_pro_acks_apply_the_reported_value():
+    daemon = gb.Daemon()
+    daemon.emit = lambda: None
+    daemon.handle_ack(gb.MSG_SET_DETECT_CONVERSATIONS, bytes([1]))
+    daemon.handle_ack(gb.MSG_NOISE_REDUCTION_LEVEL, bytes([0]))
+    daemon.handle_ack(gb.MSG_EXTRA_CLEAR_CALL, bytes([1]))
+    assert daemon.state["voice_detect"] is True
+    assert daemon.state["anc_high"] is False
+    assert daemon.state["extra_clear_call"] is True
+
+
 if __name__ == "__main__":
     failures = 0
     for name, test in sorted(globals().items()):
