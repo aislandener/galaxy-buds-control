@@ -579,7 +579,7 @@ class Daemon:
             # to wake the whole device, so wait for them to come back instead.
             # Still say which pair this is, so the panel can name it meanwhile.
             self.update({"connected": False, "reason": "device offline",
-                         "model": profile["name"], "name": name})
+                         "model": profile["name"], "modes": list(profile["modes"]), "name": name})
             return True
 
         if profile is not self.profile:
