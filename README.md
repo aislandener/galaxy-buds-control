@@ -178,6 +178,9 @@ Every key is optional; anything you leave out keeps its English text.
 | `seamless` | Quick connect |
 | `left` / `right` / `case` | L / R / Case |
 | `notOutput` | Not the audio output |
+| `ancHigh` / `voiceDetect` / `extraClearCall` | ANC high / Voice detect / Extra clear call sound |
+| `sirenDetect` / `headTracking` / `autoPause` / `adaptiveVolume` | Siren detect / Head tracking / Auto pause and resume / Adaptive volume |
+| `phoneOnly` | Greyed settings can only be changed from the Galaxy Wearable app. |
 | `serviceOff` | The plugin service is not running. |
 | `searchHint` | 1. Open the case. 2. Hold the touch sensors on both earbuds for about 7 seconds, until the light starts flickering. 3. Tap Search. |
 | `search` | Search |
@@ -196,6 +199,15 @@ Every key is optional; anything you leave out keeps its English text.
 | Buds Pro | off / ANC / ambient | firmware 2+ | yes | yes | — |
 | Buds2, Buds2 Pro, Buds FE, Buds Core | off / ANC / ambient | most | yes | yes | yes |
 | Buds3, Buds3 Pro, Buds3 FE | off / ANC / ambient | most | yes | yes | yes |
+| Buds4 | off / ANC / ambient | yes | yes | yes | yes |
+| Buds4 Pro | off / ANC / ambient / adaptive | yes | yes | yes | yes |
+
+The Buds4 Pro also shows the Pro-only settings from its extended status:
+**ANC high**, **Voice detect** and **Extra clear call sound** are switchable
+from the panel; **Siren detect**, **Head tracking**, **Auto pause and resume**
+and **Adaptive volume** are shown greyed because only the Galaxy Wearable app
+can change them. Byte offsets follow GalaxyBudsClient's decoder for Buds3 Pro
+and newer and have not yet been confirmed on Buds4 Pro hardware.
 
 Battery is reported by every model; the case only reports its own charge while
 the earbuds are sitting in it, so that bar comes and goes. Which earbud is

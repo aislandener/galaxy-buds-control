@@ -23,6 +23,17 @@ Panel {
   readonly property var touch: buds.touch || ({})
   readonly property var modes: buds.modes || ["off", "anc", "ambient"]
   readonly property string deviceName: String(buds.name || "Galaxy Buds")
+  readonly property string model: String(buds.model || "unknown")
+  // Shown under the Bluetooth alias, which is usually something personal
+  // like "Ram's Buds4 Pro" and so does not say which model that is.
+  readonly property var modelNames: ({
+    "buds": "Galaxy Buds", "budsplus": "Galaxy Buds+", "budslive": "Galaxy Buds Live",
+    "budspro": "Galaxy Buds Pro", "buds2": "Galaxy Buds2", "buds2pro": "Galaxy Buds2 Pro",
+    "budsfe": "Galaxy Buds FE", "budscore": "Galaxy Buds Core", "buds3": "Galaxy Buds3",
+    "buds3pro": "Galaxy Buds3 Pro", "buds3fe": "Galaxy Buds3 FE",
+    "buds4": "Galaxy Buds4", "buds4pro": "Galaxy Buds4 Pro"
+  })
+  readonly property string modelName: modelNames[model] || ""
 
   // Models differ in what they can do at all: the Buds+ has no ANC and no
   // 360 Audio, the original Buds has no case battery. The helper simply omits
@@ -195,7 +206,7 @@ Panel {
     var rows = []
     if (connected && hasModes) rows.push({type: "modes"})
     for (var i = 0; i < toggleRows.length; i++)
-      rows.push({type: "toggle", index: i})
+      if (!toggleRows[i].readOnly) rows.push({type: "toggle", index: i})
     if (codecOptions.length > 1) rows.push({type: "codec"})
     return rows
   }
@@ -240,7 +251,29 @@ Panel {
       rows.push({key: "touch", label: t("touch", "Touch controls"), checked: touch.enabled === true})
     if (hasSeamless)
       rows.push({key: "seamless", label: t("seamless", "Quick connect"), checked: buds.seamless === true})
+    // Pro-model extras. The helper only reports these on earbuds that have
+    // them, so every row below is hidden on the rest of the line-up.
+    if (buds.anc_high !== undefined)
+      rows.push({key: "anc_high", label: t("ancHigh", "ANC high"), checked: buds.anc_high === true})
+    if (buds.voice_detect !== undefined)
+      rows.push({key: "voice_detect", label: t("voiceDetect", "Voice detect"), checked: buds.voice_detect === true})
+    if (buds.extra_clear_call !== undefined)
+      rows.push({key: "extra_clear_call", label: t("extraClearCall", "Extra clear call sound"), checked: buds.extra_clear_call === true})
+    // Only the phone app can change these, so they are shown but not switchable.
+    if (buds.siren_detect !== undefined)
+      rows.push({key: "siren_detect", label: t("sirenDetect", "Siren detect"), checked: buds.siren_detect === true, readOnly: true})
+    if (buds.head_tracking !== undefined)
+      rows.push({key: "head_tracking", label: t("headTracking", "Head tracking"), checked: buds.head_tracking === true, readOnly: true})
+    if (buds.auto_pause !== undefined)
+      rows.push({key: "auto_pause", label: t("autoPause", "Auto pause and resume"), checked: buds.auto_pause === true, readOnly: true})
+    if (buds.adaptive_volume !== undefined)
+      rows.push({key: "adaptive_volume", label: t("adaptiveVolume", "Adaptive volume"), checked: buds.adaptive_volume === true, readOnly: true})
     return rows
+  }
+  readonly property bool hasReadOnlyRows: {
+    for (var i = 0; i < toggleRows.length; i++)
+      if (toggleRows[i].readOnly) return true
+    return false
   }
 
   function setNoise(mode) { if (service) service.setNoise(mode) }
@@ -345,7 +378,7 @@ Panel {
     focusTarget: keyCatcher
     // Codec buttons sit in one row, so the popover has to grow with them
     // rather than let the last one run past its edge.
-    contentWidth: panel.fittedContentWidth(Style.space(root.codecOptions.length > 2 ? 400 : 320))
+    contentWidth: panel.fittedContentWidth(Style.space((root.codecOptions.length > 2 || root.modeOptions.length > 3) ? 400 : 320))
     // The cap only exists to stop a runaway panel; the real limit is the
     // screen. 420 cut the codec row off once battery, modes, three toggles and
     // codecs were all on screen at once.
@@ -402,6 +435,16 @@ Panel {
               font.family: root.fontFamily
               font.pixelSize: Style.font.title
               font.bold: true
+              elide: Text.ElideRight
+              width: parent.width
+            }
+
+            Text {
+              visible: root.modelName !== ""
+              text: root.modelName
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
               elide: Text.ElideRight
               width: parent.width
             }
@@ -537,7 +580,7 @@ Panel {
             Text {
               id: rowLabel
               text: modelData.label
-              color: root.foreground
+              color: modelData.readOnly ? root.dim : root.foreground
               font.family: root.fontFamily
               font.pixelSize: Style.font.body
               anchors.left: parent.left
@@ -547,14 +590,26 @@ Panel {
             ToggleSwitch {
               id: rowSwitch
               checked: modelData.checked
-              hasCursor: root.cursorIndex === root.toggleRowIndex(index)
+              interactive: !modelData.readOnly
+              opacity: modelData.readOnly ? 0.6 : 1.0
+              hasCursor: !modelData.readOnly && root.cursorIndex === root.toggleRowIndex(index)
               foreground: root.foreground
               anchors.right: parent.right
               anchors.verticalCenter: parent.verticalCenter
-              onHovered: function(on) { if (on) root.selectCursor(root.toggleRowIndex(index)) }
-              onToggled: root.setToggle(modelData.key, !modelData.checked)
+              onHovered: function(on) { if (on && !modelData.readOnly) root.selectCursor(root.toggleRowIndex(index)) }
+              onToggled: if (!modelData.readOnly) root.setToggle(modelData.key, !modelData.checked)
             }
           }
+        }
+
+        Text {
+          width: parent.width
+          visible: root.hasReadOnlyRows
+          text: root.t("phoneOnly", "Greyed settings can only be changed from the Galaxy Wearable app.")
+          color: root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          wrapMode: Text.WordWrap
         }
 
         PanelSectionHeader {
