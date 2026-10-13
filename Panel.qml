@@ -145,7 +145,8 @@ Panel {
     }
   }
   onOpenedChanged: {
-    if (!opened) {
+    if (opened) selectCursor(0)
+    else {
       stopScanning()
       connecting = false
       connectTimeoutTimer.stop()
@@ -200,10 +201,6 @@ Panel {
     return rows
   }
   readonly property int cursorCount: focusableRows.length
-
-  onOpenedChanged: {
-    if (opened) selectCursor(0)
-  }
 
   readonly property var modeOptions: {
     var names = {

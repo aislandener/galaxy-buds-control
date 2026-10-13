@@ -115,7 +115,9 @@ PROFILES = [
      "seamless": (19, 0), "spatial": None},
 
     {"name": "buds3", "charging": True, "ids": (333, 334), "match": ("Buds3",),
-     "uuid": SPP_NEW,
+     # Some Buds3 firmware advertises both vendor SPP and standard RFCOMM,
+     # but only keeps the standard service open for Profile1 clients.
+     "uuid": SPP_STANDARD,
      "modes": ("off", "anc", "ambient"), "noise": ("controls", 12), "touch": ("bits7", 10),
      "seamless": (19, 0), "spatial": (35, 0)},
 ]
